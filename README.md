@@ -2,9 +2,15 @@
 
 ## Installation 
 ```bash
-# regular editable install
-pip install -e .
+# regular install
+pip install .
 
-# development tools install
+# editable and development tools install
 pip install -e .[dev]
 ```
+
+## Intended use 
+...
+
+## Architecture
+...
