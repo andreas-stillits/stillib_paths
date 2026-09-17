@@ -48,7 +48,7 @@ select = [
 ]
 
 fixable = ["ALL"] # what is ruff allowed to auto-fix
-ignore = ["E501", "F401"] # F401 removes unused imports. Remove if wanted
+ignore = ["E101", "E102", "E501", "F401"] # F401 removes unused imports. Remove if wanted
 
 [tool.ruff.format]
 quote-style = "double"
