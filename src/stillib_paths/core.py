@@ -165,13 +165,12 @@ class PathsBase:
 
 
 def managed_path[T](kind: Kind) -> Callable[[Callable[[T], Path]], ManagedPathField[T]]:
-    if kind in ("file", "dir"):
-        return lambda factory: ManagedPathField(factory, kind)
-    else:
+    if kind not in ("file", "dir"):
         # Fail at runtime if an invalid field type is passed
         raise ValueError(
-            f"Unknown managed path kind: {kind}. Choose from: 'file', 'dir', 'child'"
+            f"Unknown managed path kind: {kind}. Choose from: 'file' or 'dir'"
         )
+    return lambda factory: ManagedPathField(factory, kind)
 
 
 # --------------------------

@@ -20,7 +20,7 @@ actual path naming conventions are long and messy. By leaving the root as a para
 Here are a few examples of how to use the tool:
 
 ### Simple static folder
-We declare the project folder and its contents as a `PathsBase` object. Subpaths are defined by decorating generator functions according to their type: file, directory, child object. Suppose we want the file tree:
+We declare the project folder and its contents as a `PathsBase` object. File and directory paths are declared with `managed_path`. Nested path groups are represented by ordinary read-only properties. Suppose we want the file tree:
 
 ```
 project/
