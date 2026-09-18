@@ -9,6 +9,9 @@ pip install .
 pip install -e .[dev]
 ```
 
+## Why does this tool exist?
+...
+
 ## Intended use 
 ...
 

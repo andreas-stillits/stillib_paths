@@ -160,16 +160,17 @@ class ManagedPathField[T]:
         return ManagedPath(self.factory(obj), self.kind)
 
 
-# decorator to create a ManagedPathField with a factory function and kind
-def pathfield[T](
-    *, kind: Kind = "dir"
-) -> Callable[[Callable[[T], Path]], ManagedPathField[T]]:
-    if kind not in ("dir", "file"):
-        message: str = f"Invalid kind: {kind}. Choose 'dir' or 'file'."
-        raise ValueError(message)
-
+# decorators to create a ManagedPathField with a factory function
+def file_type[T]() -> Callable[[Callable[[T], Path]], ManagedPathField[T]]:
     def wrapper(factory: Callable[[T], Path]) -> ManagedPathField[T]:
-        return ManagedPathField(factory, kind)
+        return ManagedPathField(factory, kind="file")
+
+    return wrapper
+
+
+def dir_type[T]() -> Callable[[Callable[[T], Path]], ManagedPathField[T]]:
+    def wrapper(factory: Callable[[T], Path]) -> ManagedPathField[T]:
+        return ManagedPathField(factory, kind="dir")
 
     return wrapper
 
@@ -183,5 +184,5 @@ class ManagedChildPathsField[T, P]:
 
 
 # decorator to create a ManagedChildPathsField with a factory function
-def childpaths[T, P: PathsBase](func: Callable[[T], P]) -> ManagedChildPathsField[T, P]:
+def child_type[T, P: PathsBase](func: Callable[[T], P]) -> ManagedChildPathsField[T, P]:
     return ManagedChildPathsField(func)
