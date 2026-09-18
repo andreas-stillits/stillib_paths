@@ -64,7 +64,7 @@ print(paths.config)
 input_path: Path = paths.data.input_file.require()
 ```
 
-It is of course possible to define data/ as a dir_type property and input/output files from there, i.e.
+It is of course possible to define data/ as a directory managed path and input/output files from there, i.e.
 ```python 
 class ProjectPaths(PathsBase):
     @managed_path("file")
