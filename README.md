@@ -50,7 +50,7 @@ class ProjectPaths(PathsBase):
     def config(self) -> Path:
         return self.base / "config.json"
 
-    @managed_path("child")
+    @property
     def data(self) -> DataPaths:
         return DataPaths(self.base / "data")
 
@@ -181,11 +181,11 @@ class SimulationPaths(StepPaths):
 
 
 class ProjectPaths(PathsBase):
-    @managed_path("child")
+    @property
     def synthesis(self) -> SynthesisPaths:
         return SynthesisPaths(self.base / "synthesis")
 
-    @managed_path("child")
+    @property
     def simulation(self) -> SimulationPaths:
         return SimulationPaths(self.base / "simulation")
 
