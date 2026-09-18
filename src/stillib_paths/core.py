@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from os import PathLike as OSPathLike
 from pathlib import Path
 from typing import Any, Literal, overload
 
-type PathLike = str | Path
+type PathLike = str | OSPathLike[str]
 type FieldKind = Literal["dir", "file", "child"]
 type PathKind = Literal["dir", "file"]
 
@@ -37,7 +38,7 @@ def ensure(path: PathLike, kind: PathKind = "dir", touch: bool = False) -> Path:
 
     Behavior:
         - If kind is "dir", create the directory and any necessary parent directories.
-        - If kind is "file", create the parent directories. Touching is disabled by default
+        - If kind is "file", create the parent directories. Touching the file is disabled by default
 
     Args:
         path: The path to ensure.
@@ -83,6 +84,8 @@ def require(path: PathLike, kind: PathKind = "dir") -> Path:
     path = Path(path)
     if not path.exists():
         raise MissingPathError(f"Path does not exist: {path}")
+    if kind not in ("dir", "file"):
+        raise ValueError(f"Invalid kind: {kind}. Choose 'dir' or 'file'.")
     if kind == "dir" and not path.is_dir():
         raise WrongPathKindError(f"Path is not a directory: {path}")
     if kind == "file" and not path.is_file():

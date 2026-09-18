@@ -1,6 +1,17 @@
-from .core import PathsBase, managed_path
+from .core import (
+    ManagedPath,
+    MissingPathError,
+    PathsBase,
+    PathsError,
+    WrongPathKindError,
+    managed_path,
+)
 
 __all__ = [
+    "ManagedPath",
+    "MissingPathError",
     "PathsBase",
+    "PathsError",
+    "WrongPathKindError",
     "managed_path",
 ]

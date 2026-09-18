@@ -1,4 +1,4 @@
-# Python tool template repository
+# stillib_paths - a path management utility built on pathlib
 
 ## Installation 
 ```bash
@@ -22,62 +22,64 @@ Here are a few examples of how to use the tool:
 ### Simple static folder
 We declare the project folder and its contents as a `PathsBase` object. Subpaths are defined by decorating generator functions according to their type: file, directory, child object. Suppose we want the file tree:
 
+```
 project/
     data/
         input.npy
         output.npy
     config.json
+```
 
 We then encode that structure in a paths.py file:
 
 ```python
 from pathlib import Path
-from stillib_paths import PathsBase, child_type, file_type
+from stillib_paths import PathsBase, managed_path
 
 class DataPaths(PathsBase):
-    @file_type()
+    @managed_path("file")
     def input_file(self) -> Path:
         return self.base / "input.npy"
 
-    @file_type()
+    @managed_path("file")
     def output_file(self) -> Path:
         return self.base / "output.npy"
 
 class ProjectPaths(PathsBase):
-    @file_type()
+    @managed_path("file")
     def config(self) -> Path:
         return self.base / "config.json"
 
-    @child_type
+    @managed_path("child")
     def data(self) -> DataPaths:
         return DataPaths(self.base / "data")
 
 ```
-We can instanciate a `ProjectPaths` object and navigate the file system using `__get__` syntax.
-We could for instance print the config path and ensure that data/input.npy exists:
+We can instanciate a `ProjectPaths` object and navigate the file system by accessing paths as attributes.
+We could for instance print the config path and require that data/input.npy exists:
 
 ```python 
 paths = ProjectPaths('path/to/project/root/')
 print(paths.config)
-input_path: Path = paths.data.input_file.ensure()
+input_path: Path = paths.data.input_file.require()
 ```
 
 It is of course possible to define data/ as a dir_type property and input/output files from there, i.e.
 ```python 
 class ProjectPaths(PathsBase):
-    @file_type()
+    @managed_path("file")
     def config(self) -> Path:
         return self.base / "config.json"
 
-    @dir_type()
+    @managed_path("dir")
     def data(self) -> Path:
         return self.base / "data"
 
-    @file_type()
+    @managed_path("file")
     def input_file(self) -> Path:
         return self.data.path / "input.npy"
 
-    @file_type()
+    @managed_path("file")
     def output_file(self) -> Path:
         return self.data.path / "output.npy"
 
@@ -91,6 +93,7 @@ But it quickly becomes much more transparent and versitile to define new `PathsB
 Suppose a project executes a lot of different runs that outputs a folder with the same conceptual content.
 We can create a `RunPaths` object and parameterize it based on a `run_id`. Imagine the structure:
 
+```
 project/ 
     data/
         run_001/
@@ -100,92 +103,89 @@ project/
         run_003/
            ...
     config.json
+```
 
 Then we simply define:    
 
 
 ```python 
 from pathlib import Path
-from stillib_paths import PathsBase, dir_type, file_type
+from stillib_paths import PathsBase, managed_path
 
 class RunPaths(PathsBase):
-    def __init__(self, base: Path, run_id: str) -> None:
-        super().__init__(base / f"run_{run_id}")
-        self.run_id = run_id
-
-    @file_type()
+    @managed_path("file")
     def output_file(self) -> Path:
         return self.base / "output.npy"
 
 class ProjectPaths(PathsBase):
-    @file_type()
+    @managed_path("file")
     def config(self) -> Path:
         return self.base / "config.json"
 
-    @dir_type()
+    @managed_path("dir")
     def data(self) -> Path:
         return self.base / "data"
 
     def run(self, run_id: str) -> RunPaths:
-        # here we choose to enforce that data/ exists once a RunPaths instance is created
-        return RunPaths(self.data.ensure(), run_id)
+        # here we choose to enforce that the data/ folder exists once a RunPaths instance is created
+        return RunPaths(self.data.ensure() / f"run_{run_id}")
 
 # then access as:
 paths = ProjectPaths("path/to/project/root/")
 for run_id in ["001", "002", "003"]:
     run_paths = paths.run(run_id)
-    run_paths.output_file.ensure()
+    run_paths.output_file.ensure(touch=True)
 ```
-Here `self.base` is rewritten from the parent base to now include the variable run folder
 
 ### Enheritance of repeated folder contents
 Suppose we have a pipeline where several steps take in and input, computes and output and documentation.
 If all steps should emit a config and a manifest, we can create a `StepPaths` base class such that individual
 step definitions enherit those properties. Say we concretely have two steps: synthesis and simulation, and want:
 
+```
 project/
     synthesis/
         data.npy
         config.json
         manifest.json
     simulation/
-        results.txt
+        results.csv
         config.json
         manifest.json
-
+```
 
 ```python
 from pathlib import Path
-from stillib_paths import PathsBase, child_type, dir_type, file_type
+from stillib_paths import PathsBase, managed_path
 
 
 class StepPaths(PathsBase):
-    @file_type()
+    @managed_path("file")
     def manifest(self) -> Path:
         return self.base / "manifest.json"
     
-    @file_type()
+    @managed_path("file")
     def config(self) -> Path:
         return self.base / "config.json"
     
 class SynthesisPaths(StepPaths):
-    @file_type()
+    @managed_path("file")
     def output_file(self) -> Path:
         return self.base / "data.npy"
     
 
 class SimulationPaths(StepPaths):
-    @file_type()
+    @managed_path("file")
     def output_file(self) -> Path:
         return self.base / "results.csv"
 
 
 class ProjectPaths(PathsBase):
-    @child_type
+    @managed_path("child")
     def synthesis(self) -> SynthesisPaths:
         return SynthesisPaths(self.base / "synthesis")
 
-    @child_type
+    @managed_path("child")
     def simulation(self) -> SimulationPaths:
         return SimulationPaths(self.base / "simulation")
 
@@ -193,6 +193,7 @@ class ProjectPaths(PathsBase):
 # Have simulation require that the data exists and then produce results.csv
 paths = ProjectPaths(Path("/path/to/project/root")) 
 synthesize(paths.synthesis.output_file.path)
+emit(paths.synthesis.config.path, paths.synthesis.manifest.path)
 simulate(paths.synthesis.output_file.require())
 ```
 Here `.require()` raises `MissingPathError` if the input does not exist and otherwise returns the Path.
