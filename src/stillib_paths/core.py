@@ -3,10 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, overload
 
 type PathLike = str | Path
-type Kind = Literal["dir", "file"]
+type FieldKind = Literal["dir", "file", "child"]
+type PathKind = Literal["dir", "file"]
 
 # -------------------------------------------------------
 # Definition of error types
@@ -25,7 +26,7 @@ class WrongPathKindError(PathsError):
     """Raised when a path exists but is of the wrong kind (file vs directory)."""
 
 
-def ensure(path: PathLike, kind: Kind = "dir") -> Path:
+def ensure(path: PathLike, kind: PathKind = "dir") -> Path:
     """
     Ensure that a path exists.
 
@@ -57,7 +58,7 @@ def ensure(path: PathLike, kind: Kind = "dir") -> Path:
     return path
 
 
-def require(path: PathLike, kind: Kind = "dir") -> Path:
+def require(path: PathLike, kind: PathKind = "dir") -> Path:
     """
     Require that a path exists.
 
@@ -99,7 +100,7 @@ class ManagedPath:
     """
 
     path: Path
-    kind: Kind = "dir"
+    kind: PathKind = "dir"
 
     # adopt ensure/require policies as methods
     def ensure(self) -> Path:
@@ -150,6 +151,28 @@ class PathsBase:
         self.base = Path(base)
 
 
+@overload
+def managedpath[T](
+    kind: PathKind,
+) -> Callable[[Callable[[T], Path]], ManagedPathField[T]]: ...
+
+
+@overload
+def managedpath[T, P: PathsBase](
+    kind: Literal["child"],
+) -> Callable[[Callable[[T], P]], ManagedChildPathsField[T, P]]: ...
+
+
+def managedpath(kind: FieldKind) -> Callable[[Callable[..., Any]], Any]:
+    def wrapper(factory: Callable[..., Any]) -> Any:
+        if kind == "child":
+            return ManagedChildPathsField(factory)
+
+        return ManagedPathField(factory, kind)
+
+    return wrapper
+
+
 @dataclass(frozen=True)
 class ManagedPathField[T]:
     """
@@ -158,26 +181,15 @@ class ManagedPathField[T]:
     """
 
     factory: Callable[[T], Path]
-    kind: Kind = "dir"
+    kind: PathKind = "dir"
 
     # define action for . notation on the field
     def __get__(self, obj: T, owner: type | None = None) -> ManagedPath:
+        if obj is None:
+            raise AttributeError(
+                "ManagedPathField must be accessed through an instance."
+            )
         return ManagedPath(self.factory(obj), self.kind)
-
-
-# decorators to create a ManagedPathField with a factory function
-def file_type[T]() -> Callable[[Callable[[T], Path]], ManagedPathField[T]]:
-    def wrapper(factory: Callable[[T], Path]) -> ManagedPathField[T]:
-        return ManagedPathField(factory, kind="file")
-
-    return wrapper
-
-
-def dir_type[T]() -> Callable[[Callable[[T], Path]], ManagedPathField[T]]:
-    def wrapper(factory: Callable[[T], Path]) -> ManagedPathField[T]:
-        return ManagedPathField(factory, kind="dir")
-
-    return wrapper
 
 
 @dataclass(frozen=True)
@@ -185,9 +197,8 @@ class ManagedChildPathsField[T, P]:
     factory: Callable[[T], P]
 
     def __get__(self, obj: T, owner: type | None = None) -> P:
+        if obj is None:
+            raise AttributeError(
+                "ManagedChildPathsField must be accessed through an instance."
+            )
         return self.factory(obj)
-
-
-# decorator to create a ManagedChildPathsField with a factory function
-def child_type[T, P: PathsBase](func: Callable[[T], P]) -> ManagedChildPathsField[T, P]:
-    return ManagedChildPathsField(func)

@@ -1,8 +1,6 @@
-from .core import PathsBase, child_type, dir_type, file_type
+from .core import PathsBase, managedpath
 
 __all__ = [
     "PathsBase",
-    "child_type",
-    "dir_type",
-    "file_type",
+    "managedpath",
 ]
