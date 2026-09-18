@@ -26,14 +26,18 @@ class WrongPathKindError(PathsError):
     """Raised when a path exists but is of the wrong kind (file vs directory)."""
 
 
-def ensure(path: PathLike, kind: PathKind = "dir") -> Path:
+# -------------------------------------------------------
+# Definition of ensure/require behavior
+# -------------------------------------------------------
+
+
+def ensure(path: PathLike, kind: PathKind = "dir", touch: bool = False) -> Path:
     """
     Ensure that a path exists.
 
     Behavior:
         - If kind is "dir", create the directory and any necessary parent directories.
-        - If kind is "file", create the parent directories and an empty file at the specified path.
-    If the path already exists, do nothing.
+        - If kind is "file", create the parent directories. Touching is disabled by default
 
     Args:
         path: The path to ensure.
@@ -51,10 +55,10 @@ def ensure(path: PathLike, kind: PathKind = "dir") -> Path:
         path.mkdir(parents=True, exist_ok=True)
     elif kind == "file":
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch(exist_ok=True)
+        if touch:
+            path.touch(exist_ok=True)
     else:
-        message: str = f"Invalid kind: {kind}. Choose 'dir' or 'file'."
-        raise ValueError(message)
+        raise ValueError(f"Invalid kind: {kind}. Choose 'dir' or 'file'.")
     return path
 
 
@@ -92,7 +96,7 @@ def require(path: PathLike, kind: PathKind = "dir") -> Path:
 # -------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ManagedPath:
     """
     Basic data class. A ManagedPath holds a pathlib.Path object and a kind (either "dir" or "file").
@@ -100,11 +104,11 @@ class ManagedPath:
     """
 
     path: Path
-    kind: PathKind = "dir"
+    kind: PathKind
 
     # adopt ensure/require policies as methods
-    def ensure(self) -> Path:
-        return ensure(self.path, self.kind)
+    def ensure(self, touch: bool = False) -> Path:
+        return ensure(self.path, self.kind, touch=touch)
 
     def require(self) -> Path:
         return require(self.path, self.kind)
@@ -130,6 +134,8 @@ class ManagedPath:
 
     # Adopt the / operation for joining paths
     def __truediv__(self, other: PathLike) -> Path:
+        if self.kind != "dir":
+            raise TypeError("Cannot join a path onto a file-type path")
         return self.path / other
 
     # Allow passing the object to be understood as its path as a string in file system operations
@@ -143,34 +149,50 @@ class ManagedPath:
 
 class PathsBase:
     """
-    Base clase for path management classes.
-    Introduces the convention that path at any given level is enconded in the base attribute.
+    Base class for file tree declaration.
+    Introduces the convention that path at any given level is enconded in the 'base' attribute.
     """
 
     def __init__(self, base: PathLike) -> None:
         self.base = Path(base)
 
 
+# -------------------------
+# Parameterized Decorator
+# -------------------------
+
+
+# Encode typing for 'file' and 'dir' behavior
 @overload
-def managedpath[T](
+def managed_path[T](
     kind: PathKind,
 ) -> Callable[[Callable[[T], Path]], ManagedPathField[T]]: ...
 
 
+# Encode typing for 'child' behavior
 @overload
-def managedpath[T, P: PathsBase](
+def managed_path[T, P: PathsBase](
     kind: Literal["child"],
 ) -> Callable[[Callable[[T], P]], ManagedChildPathsField[T, P]]: ...
 
 
-def managedpath(kind: FieldKind) -> Callable[[Callable[..., Any]], Any]:
-    def wrapper(factory: Callable[..., Any]) -> Any:
-        if kind == "child":
-            return ManagedChildPathsField(factory)
+# Actual decorator definition
+def managed_path(kind: FieldKind) -> Callable[[Callable[..., Any]], Any]:
+    if kind == "child":
+        return lambda factory: ManagedChildPathsField(factory)
 
-        return ManagedPathField(factory, kind)
+    if kind in ("file", "dir"):
+        return lambda factory: ManagedPathField(factory, kind)
 
-    return wrapper
+    # Fail at runtime if an invalid field type is passed
+    raise ValueError(
+        f"Unknown managed path kind: {kind}. Choose from: 'file', 'dir', 'child'"
+    )
+
+
+# --------------------------
+# Descriptors
+# --------------------------
 
 
 @dataclass(frozen=True)
@@ -181,24 +203,53 @@ class ManagedPathField[T]:
     """
 
     factory: Callable[[T], Path]
-    kind: PathKind = "dir"
+    kind: PathKind
 
-    # define action for . notation on the field
-    def __get__(self, obj: T, owner: type | None = None) -> ManagedPath:
+    # overloading __get__ method for accurate typing
+    @overload
+    def __get__(self, obj: None, owner: type[T] | None = None) -> ManagedPathField: ...
+
+    @overload
+    def __get__(self, obj: T, owner: type[T] | None = None) -> ManagedPath: ...
+
+    # definition. Conform to convention that the descriptor itself is returned if accessed through the class and not an instance
+    def __get__(
+        self, obj: T | None, owner: type[T] | None = None
+    ) -> ManagedPathField | ManagedPath:
+        # If class access:
         if obj is None:
-            raise AttributeError(
-                "ManagedPathField must be accessed through an instance."
-            )
+            return self
+        # If instance access:
         return ManagedPath(self.factory(obj), self.kind)
+
+    # preventing accidental shadowing. Declarations should be immutable
+    def __set__(self, obj: object, value: object) -> None:
+        raise AttributeError("ManagedPath fields are read-only once declared")
 
 
 @dataclass(frozen=True)
 class ManagedChildPathsField[T, P]:
     factory: Callable[[T], P]
 
-    def __get__(self, obj: T, owner: type | None = None) -> P:
+    # overloading __get__ method for accurate typing
+    @overload
+    def __get__(
+        self, obj: None, owner: type[T] | None = None
+    ) -> ManagedChildPathsField: ...
+
+    @overload
+    def __get__(self, obj: T, owner: type[T] | None = None) -> P: ...
+
+    # definition. Conform to convention that the descriptor itself is returned if accessed through the class and not an instance
+    def __get__(
+        self, obj: T | None, owner: type[T] | None = None
+    ) -> ManagedChildPathsField | P:
+        # If class access:
         if obj is None:
-            raise AttributeError(
-                "ManagedChildPathsField must be accessed through an instance."
-            )
+            return self
+        # If instance access:
         return self.factory(obj)
+
+    # preventing accidental shadowing. Declarations should be immutable
+    def __set__(self, obj: object, value: object) -> None:
+        raise AttributeError("ManagedPath fields are read-only once declared")

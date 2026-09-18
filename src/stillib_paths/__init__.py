@@ -1,6 +1,6 @@
-from .core import PathsBase, managedpath
+from .core import PathsBase, managed_path
 
 __all__ = [
     "PathsBase",
-    "managedpath",
+    "managed_path",
 ]
