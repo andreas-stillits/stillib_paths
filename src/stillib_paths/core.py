@@ -131,7 +131,7 @@ class ManagedPath:
     def __truediv__(self, other: PathLike) -> Path:
         return self.path / other
 
-    # Adopt under the hood conversion of Path to str in file system operations
+    # Allow passing the object to be understood as its path as a string in file system operations
     def __fspath__(self) -> str:
         return str(self.path)
 
@@ -141,6 +141,11 @@ class ManagedPath:
 
 
 class PathsBase:
+    """
+    Base clase for path management classes.
+    Introduces the convention that path at any given level is enconded in the base attribute.
+    """
+
     def __init__(self, base: PathLike) -> None:
         self.base = Path(base)
 
@@ -149,7 +154,7 @@ class PathsBase:
 class ManagedPathField[T]:
     """
     A field is born with a factory function and a kind indication.
-    The factory should return a Path object.
+    The factory should return a pathlib.Path object.
     """
 
     factory: Callable[[T], Path]
