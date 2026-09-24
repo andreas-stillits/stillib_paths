@@ -15,7 +15,7 @@ type Kind = Literal["dir", "file"]
 
 
 class PathsError(Exception):
-    """Base class for all path-related errors."""
+    """Base class for all managed-path-related errors."""
 
 
 class MissingPathError(PathsError):
@@ -27,25 +27,25 @@ class WrongPathKindError(PathsError):
 
 
 # -------------------------------------------------------
-# Definition of ensure/require behavior
+# Definition of prepare/require behavior
 # -------------------------------------------------------
 
 
-def ensure(path: PathLike, kind: Kind = "dir", touch: bool = False) -> Path:
+def prepare(path: PathLike, kind: Kind = "dir", touch: bool = False) -> Path:
     """
-    Ensure that a path exists.
+    Prepare a path by ensuring that the necessary directories exist.
 
     Behavior:
-        - If kind is "dir", create the directory and any necessary parent directories.
-        - If kind is "file", create the parent directories. Touching the file is disabled by default
+        - If kind is "dir", create the directory and its parent directories.
+        - If kind is "file", create the parent directories. By default, do not create the file itself unless touch is True.
 
     Args:
-        path: The path to ensure.
+        path: The path to prepare.
         kind: The kind of the path (either "dir" or "file").
         touch: Whether to touch the file if it doesn't exist.
-    Raise:
+               WARNING: creating an empty file before computation risks a misleading state if the computation fails. Use with caution.
+    Raises:
         - ValueError: If specified kind is not "dir" or "file".
-
     Return:
         - The pathlib.Path object corresponding to the specified path.
     """
@@ -81,15 +81,14 @@ def require(path: PathLike, kind: Kind = "dir") -> Path:
         The pathlib.Path object corresponding to the specified path.
     """
     path = Path(path)
-    if not path.exists():
-        raise MissingPathError(f"Path does not exist: {path}")
     if kind not in ("dir", "file"):
         raise ValueError(f"Invalid kind: {kind}. Choose 'dir' or 'file'.")
+    if not path.exists():
+        raise MissingPathError(f"Path does not exist: {path}")
     if kind == "dir" and not path.is_dir():
         raise WrongPathKindError(f"Path is not a directory: {path}")
     if kind == "file" and not path.is_file():
         raise WrongPathKindError(f"Path is not a file: {path}")
-
     return path
 
 
@@ -98,19 +97,36 @@ def require(path: PathLike, kind: Kind = "dir") -> Path:
 # -------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class ManagedPath:
+class AttriPathsBase:
     """
-    Basic data class. A ManagedPath holds a pathlib.Path object and a kind (either "dir" or "file").
-    It provides methods to ensure or require the path, as well as mirroring some of the pathlib.Path methods for ease of use.
+    Base class for file tree declaration.
+    Defines the convention that the base path for a given instance is stored in the attribute `base`.
+    This base path is used as the root for all managed paths declared in the class.
+    """
+
+    def __init__(self, base: PathLike) -> None:
+        self.base = Path(base)
+
+
+@dataclass(frozen=True, slots=True)
+class AttriPath:
+    """
+    Basic data class that allows method-style access to a path and typical pathlib operations.
+    It holds a pathlib.Path object and a kind indication (either "dir" or "file").
+    The added value is that navigating the file tree and acting on it is all oneline attribute/method access syntax
     """
 
     path: Path
     kind: Kind
 
-    # adopt ensure/require policies as methods
-    def ensure(self, touch: bool = False) -> Path:
-        return ensure(self.path, self.kind, touch=touch)
+    # adopt the defined prepare/require behavior for ease of use
+    def prepare(self, touch: bool = False) -> Path:
+        """
+        touch (bool) is a flag that indicates whether to create an empty file if the path is of kind "file" and does not exist.
+        Default setting is not to touch.
+        WARNING: creating an empty file before computation risks a misleading state if the computation fails. Use with caution.
+        """
+        return prepare(self.path, self.kind, touch=touch)
 
     def require(self) -> Path:
         return require(self.path, self.kind)
@@ -137,10 +153,10 @@ class ManagedPath:
     # Adopt the / operation for joining paths
     def __truediv__(self, other: PathLike) -> Path:
         if self.kind != "dir":
-            raise TypeError("Cannot join a path onto a file-type path")
+            raise TypeError("Cannot join a path onto a non-dir type path")
         return self.path / other
 
-    # Allow passing the object to be understood as its path as a string in file system operations
+    # Allow passing the object to be directly understood as its path attribute as a string in file system operations
     def __fspath__(self) -> str:
         return str(self.path)
 
@@ -149,14 +165,45 @@ class ManagedPath:
         return str(self.path)
 
 
-class PathsBase:
+# --------------------------
+# Descriptor
+# --------------------------
+
+
+@dataclass(frozen=True)
+class AttriPathDescriptor[T]:
     """
-    Base class for file tree declaration.
-    Introduces the convention that path at any given level is enconded in the 'base' attribute.
+    Descriptor class for AttriPath. It allows the declaration of an AttriPath by decorating a generator function.
+    The generator function must take an object and return a simple pathlib.Path
     """
 
-    def __init__(self, base: PathLike) -> None:
-        self.base = Path(base)
+    generator: Callable[[T], Path]
+    kind: Kind
+
+    # overloading __get__ method for accurate typing
+    # by python convention, if the descriptor is accessed through the class and not an instance (obj = None), the descriptor itself is returned
+    @overload
+    def __get__(
+        self, obj: None, owner: type[T] | None = None
+    ) -> AttriPathDescriptor[T]: ...
+
+    @overload
+    def __get__(self, obj: T, owner: type[T] | None = None) -> AttriPath: ...
+
+    # definition. Conform to convention that the descriptor itself is returned if accessed through the class and not an instance
+    def __get__(
+        self, obj: T | None, owner: type[T] | None = None
+    ) -> AttriPathDescriptor[T] | AttriPath:
+        # If class access:
+        if obj is None:
+            return self
+        # If instance access:
+        return AttriPath(self.generator(obj), self.kind)
+
+    # preventing accidental shadowing. Declarations should be immutable
+    # i.e. it should not be possible to later assign new attribute values to the descriptor.
+    def __set__(self, obj: object, value: object) -> None:
+        raise AttributeError("Path fields are read-only once declared")
 
 
 # -------------------------
@@ -164,47 +211,35 @@ class PathsBase:
 # -------------------------
 
 
-def managed_path[T](kind: Kind) -> Callable[[Callable[[T], Path]], ManagedPathField[T]]:
+def attripath[T](
+    kind: Kind,
+) -> Callable[[Callable[[T], Path]], AttriPathDescriptor[T]]:
+    """
+    Decorator for file and directory paths.
+    Define the derived path by decorating a function that returns a pathlib.Path object.
+    Example:
+
+        class MyPaths(AttriPathsBase):
+            @attripath(kind="dir")
+            def my_dir(self) -> Path:
+                return self.base / "my_dir"
+
+            @attripath(kind="file")
+            def my_file(self) -> Path:
+                return self.base / "my_file.txt"
+
+    Args:
+        kind: The kind of the path (either "dir" or "file").
+    Raises:
+        ValueError: If specified kind is not "dir" or "file".
+
+    Note:
+        Generators that return new AttriPathsBase subclasses should be decorated with a plain @property instead.
+
+    """
     if kind not in ("file", "dir"):
         # Fail at runtime if an invalid field type is passed
         raise ValueError(
-            f"Unknown managed path kind: {kind}. Choose from: 'file' or 'dir'"
+            f"Unknown attripath kind: {kind}. Choose from: 'file' or 'dir'"
         )
-    return lambda factory: ManagedPathField(factory, kind)
-
-
-# --------------------------
-# Descriptor
-# --------------------------
-
-
-@dataclass(frozen=True)
-class ManagedPathField[T]:
-    """
-    A field is born with a factory function and a kind indication.
-    The factory should return a pathlib.Path object.
-    """
-
-    factory: Callable[[T], Path]
-    kind: Kind
-
-    # overloading __get__ method for accurate typing
-    @overload
-    def __get__(self, obj: None, owner: type[T] | None = None) -> ManagedPathField: ...
-
-    @overload
-    def __get__(self, obj: T, owner: type[T] | None = None) -> ManagedPath: ...
-
-    # definition. Conform to convention that the descriptor itself is returned if accessed through the class and not an instance
-    def __get__(
-        self, obj: T | None, owner: type[T] | None = None
-    ) -> ManagedPathField | ManagedPath:
-        # If class access:
-        if obj is None:
-            return self
-        # If instance access:
-        return ManagedPath(self.factory(obj), self.kind)
-
-    # preventing accidental shadowing. Declarations should be immutable
-    def __set__(self, obj: object, value: object) -> None:
-        raise AttributeError("ManagedPath fields are read-only once declared")
+    return lambda generator: AttriPathDescriptor(generator, kind)

@@ -1,6 +1,17 @@
 # stillib_paths - a path management utility built on pathlib
 
+Centralization of project path derivations with ergonomic attribute/method style syntax.
+
+## Why this exists
+The utility makes it easier to transparently declare, maintain, and share path conventions used for project I/O. Specifically it:
+- Requires the user to systematically declare how project paths are derived relative to an arbitrary file system root, preferably in a centralized paths.py file. 
+- Eliminates magic strings from floating around the code base. Paths are always accessed programmatically through the single paths.py source. Adjust the definition at the source, and the change is globally adopted.
+- Allows path derivation, navigation, and operations to exhibit an intuitive attribute/method style syntax.
+
+
 ## Installation 
+From stillib_paths project root, run:
+
 ```bash
 # regular install
 pip install .
@@ -9,138 +20,113 @@ pip install .
 pip install -e .[dev]
 ```
 
-## Why does this tool exist?
-This tool aims to centralize file system structure in a single paths.py file.
-The intend is to document and declare a file tree in one place rather than leaving magic strings and implicit conventions
-scattered over a project. All path actions can then happen programmatically rather than through raw strings.
-In collaboration settings, others can now interact with your file system structure in a more conceptual way, even when
-actual path naming conventions are long and messy. By leaving the root as a parameter, one can easily interact with the filesystem in different locations across machines, servers, etc.
-
-## Intended use 
-Here are a few examples of how to use the tool:
-
-### Simple static folder
-We declare the project folder and its contents as a `PathsBase` object. File and directory paths are declared with `managed_path`. Nested path groups are represented by ordinary read-only properties. Suppose we want the file tree:
-
-```
-project/
-    data/
-        input.npy
-        output.npy
-    config.json
-```
-
-We then encode that structure in a paths.py file:
-
-```python
-from pathlib import Path
-from stillib_paths import PathsBase, managed_path
-
-class DataPaths(PathsBase):
-    @managed_path("file")
-    def input_file(self) -> Path:
-        return self.base / "input.npy"
-
-    @managed_path("file")
-    def output_file(self) -> Path:
-        return self.base / "output.npy"
-
-class ProjectPaths(PathsBase):
-    @managed_path("file")
-    def config(self) -> Path:
-        return self.base / "config.json"
-
-    @property
-    def data(self) -> DataPaths:
-        return DataPaths(self.base / "data")
-
-```
-We can instanciate a `ProjectPaths` object and navigate the file system by accessing paths as attributes.
-We could for instance print the config path and require that data/input.npy exists:
-
-```python 
-paths = ProjectPaths('path/to/project/root/')
-print(paths.config)
-input_path: Path = paths.data.input_file.require()
-```
-
-It is of course possible to define data/ as a directory managed path and input/output files from there, i.e.
-```python 
-class ProjectPaths(PathsBase):
-    @managed_path("file")
-    def config(self) -> Path:
-        return self.base / "config.json"
-
-    @managed_path("dir")
-    def data(self) -> Path:
-        return self.base / "data"
-
-    @managed_path("file")
-    def input_file(self) -> Path:
-        return self.data.path / "input.npy"
-
-    @managed_path("file")
-    def output_file(self) -> Path:
-        return self.data.path / "output.npy"
-
-# the do directly:
-input_file: Path = paths.input_file.ensure()    
-```
-But it quickly becomes much more transparent and versitile to define new `PathsBase` objects for subfolders.
-
-
-### Parameterically derived folders
-Suppose a project executes a lot of different runs that outputs a folder with the same conceptual content.
-We can create a `RunPaths` object and parameterize it based on a `run_id`. Imagine the structure:
-
+## Minimal example
+Suppose we want to encode a project data folder which has the following structure:
 ```
 project/ 
     data/
-        run_001/
+        run_00/
             output.npy
-        run_002/
-            output.npy
-        run_003/
-           ...
+            config.json
+            manifest.json
+        run_01/
+            ...
     config.json
 ```
 
-Then we simply define:    
+Where each run_XX folder has the same conceptual structure but is distinct by its run ID.
+Declare the structure as an AttriPathsBase class and use the @property or @attripath decorators for attribute/method style syntax:
 
-
-```python 
+```python
+from stillib_paths import AttriPathsBase, attripath
 from pathlib import Path
-from stillib_paths import PathsBase, managed_path
 
-class RunPaths(PathsBase):
-    @managed_path("file")
-    def output_file(self) -> Path:
+class RunPaths(AttriPathsBase):
+    @attripath("file")
+    def output_file(self,) -> Path:
         return self.base / "output.npy"
 
-class ProjectPaths(PathsBase):
-    @managed_path("file")
-    def config(self) -> Path:
+    @attripath("file")
+    def manifest(self,) -> Path:
+        return self.base / "manifest.json"
+
+    @attripath("file")
+    def config(self,) -> Path:
         return self.base / "config.json"
 
-    @managed_path("dir")
-    def data(self) -> Path:
+
+class ProjectPaths(AttriPathsBase):
+    @attripath("file")
+    def config(self,) -> Path:
+        return self.base / "config.json" 
+
+    @attripath("dir")
+    def data(self,) -> Path:
         return self.base / "data"
 
-    def run(self, run_id: str) -> RunPaths:
-        # here we choose to enforce that the data/ folder exists once a RunPaths instance is created
-        return RunPaths(self.data.ensure() / f"run_{run_id}")
-
-# then access as:
-paths = ProjectPaths("path/to/project/root/")
-for run_id in ["001", "002", "003"]:
-    run_paths = paths.run(run_id)
-    run_paths.output_file.ensure(touch=True)
+    def run(self, runID: str) -> RunPaths:
+        return RunPaths(self.data.prepare() / f"run_{runID}")    
+        # The .prepare() call ensures that project/data/ exists if ever a RunPaths instance is invoked
+        # Here it does not create the run_XX directory until a .prepare() is called from the RunPaths instance.
 ```
 
-### Enheritance of repeated folder contents
-Suppose we have a pipeline where several steps take in and input, computes and output and documentation.
-If all steps should emit a config and a manifest, we can create a `StepPaths` base class such that individual
-step definitions enherit those properties. Say we concretely have two steps: synthesis and simulation, and want:
+Then define the root of the project and navigate the structure programmatically, e.g. in a computation context:
+
+```python
+from project.paths import ProjectPaths
+from pathlib import Path
+
+def compute_something(config) -> something:
+    paths = ProjectPaths(config.project_root_path)
+    # Say we need the output of run_00 as an input. Get the path and raise if it doesn't exist:
+    input_path: Path = paths.run("00").output_file.require()
+
+    # some computation ...
+
+    # Say we want to store a result as the output of run_01 and also emit the used config and a manifest:
+    output_paths = paths.run("01")
+    save_result(output_paths.output_file.prepare())
+    emit_config(output_paths.config.path) # directory is prepared already. We can get the raw pathlib.Path using the .path attribute
+    emit_manifest(output_paths.manifest.path)
+    return something
+```
+
+If we later decide to rename, "data/" or swap to a "config.toml" instead, `compute_something()` doesn't have to change. Only the declaration. Additionally, a collaborator that received the "data/" folder can easily derive the path to the output file of the run with "runID" using the conceptual string: `paths.run(runID).output_file.require()` without worrying about your specific naming conventions, i.e. where names may include time stamps or opaque references to your lab or setup.
+
+## Core Concepts and Abstractions
+
+### AttriPathsBase
+
+This class introduces the convention that a declaration instance stores its base path in the `self.base` attribute as a pathlib.Path object.
+It adds consistency and avoids having to expose string to pathlib.Path conversion.
+
+### AttriPath
+
+The core class which stores path (pathlib.Path) and kind (Literal["dir", "file"]) objects, and adds pathlib.Path operations on the .path attribute as native methods. It further defines the behavior of .prepare() and .require() based on the kind. By default, prepare creates the parent directories but does not touch the filename.
+
+### Use 
+By defining the system of paths as decorated methods of classes, the user achieves the one-line attribute access syntax and can exploit parameterized path generation or inheritance between similar sub-directories. Methods that define file or folder names should be decorated using `@attripath("file"/"dir")` and methods that return new AttriPathsBase sub-classes using a regular `@property`. If the derivation is parameterized, e.g. depends on a "runID", just define a regular method without decoration.
+
+## Main API
+```python
+# define classes in paths.py
+from stillib_paths import AttriPathsBase, attripath
+from pathlib import Path
+# definition ...
+class ProjectPaths(AttriPathsBase): ...
+# -----------------------------------------------------
+
+# use definitions in project functionality
+from project.paths import ProjectPaths
+paths = ProjectPaths("/path/to/project/or/data/root/")
+```
+
+## More Examples
+
+### Inheritance
+Suppose we have a pipeline where several steps take an input, compute and output, and emit documentation.
+If all steps should emit a config and a manifest, we can create a `StepPaths` base-class such that individual
+step definitions inherit those properties rather than re-typing them. Say we concretely have two steps: synthesis and simulation, and want:
 
 ```
 project/
@@ -153,34 +139,35 @@ project/
         config.json
         manifest.json
 ```
+Then the documentation files `config.json` and `manifest.json` are repeated. We encode that using inheritance
 
 ```python
 from pathlib import Path
-from stillib_paths import PathsBase, managed_path
+from stillib_paths import AttriPathsBase, attripath
 
 
-class StepPaths(PathsBase):
-    @managed_path("file")
+class StepPaths(AttriPathsBase):
+    @attripath("file")
     def manifest(self) -> Path:
         return self.base / "manifest.json"
     
-    @managed_path("file")
+    @attripath("file")
     def config(self) -> Path:
         return self.base / "config.json"
     
 class SynthesisPaths(StepPaths):
-    @managed_path("file")
+    @attripath("file")
     def output_file(self) -> Path:
         return self.base / "data.npy"
     
 
 class SimulationPaths(StepPaths):
-    @managed_path("file")
+    @attripath("file")
     def output_file(self) -> Path:
         return self.base / "results.csv"
 
 
-class ProjectPaths(PathsBase):
+class ProjectPaths(AttriPathsBase):
     @property
     def synthesis(self) -> SynthesisPaths:
         return SynthesisPaths(self.base / "synthesis")
@@ -188,12 +175,5 @@ class ProjectPaths(PathsBase):
     @property
     def simulation(self) -> SimulationPaths:
         return SimulationPaths(self.base / "simulation")
-
-# Then run synthesis and emit data.npy
-# Have simulation require that the data exists and then produce results.csv
-paths = ProjectPaths(Path("/path/to/project/root")) 
-synthesize(paths.synthesis.output_file.path)
-emit(paths.synthesis.config.path, paths.synthesis.manifest.path)
-simulate(paths.synthesis.output_file.require())
 ```
-Here `.require()` raises `MissingPathError` if the input does not exist and otherwise returns the Path.
+We can now access both `paths.synthesis.manifest` and `paths.simulation.manifest` as they both inherit from `StepPaths`.

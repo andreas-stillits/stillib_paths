@@ -1,17 +1,17 @@
 from .core import (
-    ManagedPath,
+    AttriPath,
+    AttriPathsBase,
     MissingPathError,
-    PathsBase,
     PathsError,
     WrongPathKindError,
-    managed_path,
+    attripath,
 )
 
 __all__ = [
-    "ManagedPath",
+    "AttriPath",
+    "AttriPathsBase",
     "MissingPathError",
-    "PathsBase",
     "PathsError",
     "WrongPathKindError",
-    "managed_path",
+    "attripath",
 ]
