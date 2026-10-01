@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stillib_paths"
-version = "0.1.0"
+version = "0.4.1"
 description = "A path management utility to centralize path logic and avoid magic strings in projects."
 readme = "README.md"
 requires-python = ">=3.12"
