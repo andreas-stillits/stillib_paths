@@ -177,3 +177,66 @@ class ProjectPaths(AttriPathsBase):
         return SimulationPaths(self.base / "simulation")
 ```
 We can now access both `paths.synthesis.manifest` and `paths.simulation.manifest` as they both inherit from `StepPaths`.
+
+
+### Using standard path class definitions
+
+It can be beneficial to standardize the file structure such that every project follows a certain blueprint w/ respect to a root directory, e.g.:
+```
+project/
+├── config.json
+├── data/
+│   ├── sources/
+│   └── derivatives/
+└── figures/
+    ├── dev/
+    └── pub/
+```
+
+And similarly that every output generated in `derivatives/` comes with a certain set of provenance files:
+
+```
+output/
+├── provenance/
+│   ├── config.json
+│   └── manifest.json
+└── ...
+``` 
+
+In order to centralize this convention, this tool exposes a minimal standard definition of this skeleton in `StandardProjectPaths` and `StandardProvenancePaths`.
+These are exploited in the following example which reduces the size of paths.py files and the amount of repetitive typing - at the cost of an implicit contract:
+
+```python
+class SourcePaths(StandardProvenancePaths):
+    """Source paths for the project."""
+
+    @attripath("file")
+    def output_file(self) -> Path:
+        """Path to the output file."""
+        return self.base / "output.txt"
+
+
+class ProjectPaths(StandardProjectPaths):
+    """Project paths for the project."""
+
+    def source(self, name: str) -> SourcePaths:
+        """Get the source paths for a given source name."""
+        return SourcePaths(self.data.sources.require() / name)
+
+
+def main() -> None:
+    paths = ProjectPaths(".")
+    paths.initialize() # populate the base directory with an empty (data/, figures/, config) tree.
+
+    # calls to these standard folders are possible since ProjectPaths inherit from StandardProjectPaths
+    print(paths.figures.dev.require())
+    print(paths.data.sources.require())
+
+    # Definition of a project-specific SourcePaths class allows versitility at the cost that .source(name) is a method of paths directly
+    print(paths.source("example").output_file.prepare().write_text("Hello, World!"))
+
+    # The provenance/config.json and provenance/manifest.json files are also inherited making SourcePaths much slimmer
+    print(paths.source("example").config.prepare().write_text("{}"))
+```
+This setup is less transparent for a collaborator, but favors speed and simplicity in internal projects. 
+For shared projects, consider declaring the hierarchy explicitly or at least have a README.md that illustrates how to navigate the implicit paths.
