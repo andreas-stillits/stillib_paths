@@ -6,6 +6,12 @@ from .core import (
     WrongPathKindError,
     attripath,
 )
+from .standard import (
+    StandardDataPaths,
+    StandardFiguresPaths,
+    StandardProjectPaths,
+    StandardProvenancePaths,
+)
 
 __all__ = [
     "AttriPath",
@@ -14,4 +20,8 @@ __all__ = [
     "PathsError",
     "WrongPathKindError",
     "attripath",
+    "StandardDataPaths",
+    "StandardFiguresPaths",
+    "StandardProjectPaths",
+    "StandardProvenancePaths",
 ]
